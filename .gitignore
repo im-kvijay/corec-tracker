@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Database (stored as artifact, not in repo)
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# Logs
+data/*.log
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

@@ -1,0 +1,92 @@
+name: Analyze & Report
+
+on:
+  schedule:
+    # Run daily at 6am ET (11:00 UTC)
+    - cron: '0 11 * * *'
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download database
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          name: corec-database
+          path: data/
+
+      - name: Generate analysis report
+        run: |
+          echo "# CoRec Occupancy Report" > REPORT.md
+          echo "Generated: $(date -u '+%Y-%m-%d %H:%M UTC')" >> REPORT.md
+          echo "" >> REPORT.md
+
+          # Stats
+          echo "## Database Stats" >> REPORT.md
+          sqlite3 data/corec.db "SELECT '- **' || COUNT(*) || '** total readings' FROM readings;" >> REPORT.md
+          sqlite3 data/corec.db "SELECT '- **' || COUNT(DISTINCT location_id) || '** locations tracked' FROM readings;" >> REPORT.md
+          sqlite3 data/corec.db "SELECT '- **' || COUNT(*) || '** snapshots saved' FROM snapshots;" >> REPORT.md
+          sqlite3 data/corec.db "SELECT '- Data since: ' || MIN(ts) FROM readings;" >> REPORT.md
+          echo "" >> REPORT.md
+
+          # Current status
+          echo "## Latest Readings" >> REPORT.md
+          echo "| Location | Count | Capacity | % |" >> REPORT.md
+          echo "|----------|-------|----------|---|" >> REPORT.md
+          sqlite3 -separator '|' data/corec.db "
+            SELECT '| ' || l.location_name || ' | ' || r.last_count || ' | ' || r.capacity || ' | ' || r.pct || '% |'
+            FROM readings r
+            JOIN locations l ON r.location_id = l.location_id
+            WHERE r.id IN (SELECT MAX(id) FROM readings GROUP BY location_id)
+            AND r.is_closed = 0
+            ORDER BY r.pct DESC
+            LIMIT 15;
+          " >> REPORT.md
+          echo "" >> REPORT.md
+
+          # Optimal times (if enough data)
+          READING_COUNT=$(sqlite3 data/corec.db "SELECT COUNT(*) FROM readings;")
+          if [ "$READING_COUNT" -gt 100 ]; then
+            echo "## Best Times to Visit (Lowest Crowds)" >> REPORT.md
+            echo "| Location | Day | Hour | Avg % |" >> REPORT.md
+            echo "|----------|-----|------|-------|" >> REPORT.md
+            sqlite3 -separator '|' data/corec.db "
+              SELECT '| ' || l.location_name || ' | ' ||
+                CASE CAST(strftime('%w', r.api_ts) AS INTEGER)
+                  WHEN 0 THEN 'Sun' WHEN 1 THEN 'Mon' WHEN 2 THEN 'Tue'
+                  WHEN 3 THEN 'Wed' WHEN 4 THEN 'Thu' WHEN 5 THEN 'Fri' WHEN 6 THEN 'Sat'
+                END || ' | ' ||
+                CAST(strftime('%H', r.api_ts) AS INTEGER) || ':00 | ' ||
+                ROUND(AVG(r.pct), 1) || '% |'
+              FROM readings r
+              JOIN locations l ON r.location_id = l.location_id
+              WHERE r.is_closed = 0
+              GROUP BY l.location_id, strftime('%w', r.api_ts), strftime('%H', r.api_ts)
+              HAVING COUNT(*) >= 3
+              ORDER BY AVG(r.pct) ASC
+              LIMIT 15;
+            " >> REPORT.md
+          fi
+
+          cat REPORT.md
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: analysis-report
+          path: REPORT.md
+          retention-days: 30
