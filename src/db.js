@@ -125,15 +125,8 @@ export function upsertLocation(location) {
 }
 
 export function insertReading(location) {
-  // Only store if API timestamp is recent (within last 3 hours)
-  // This filters out stale data from closed hours
-  const apiTime = new Date(location.LastUpdatedDateAndTime).getTime();
-  const threeHoursAgo = Date.now() - (3 * 60 * 60 * 1000);
-
-  if (apiTime < threeHoursAgo) {
-    return false; // Skip stale data
-  }
-
+  // Unique index on (location_id, api_ts) prevents duplicates
+  // If API returns same LastUpdatedDateAndTime, INSERT OR IGNORE skips it
   const stmt = getDb().prepare(`
     INSERT OR IGNORE INTO readings
     (location_id, last_count, capacity, pct, is_closed, api_ts)
