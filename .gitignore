@@ -1,10 +1,16 @@
 # Dependencies
 node_modules/
 
-# Database (stored as artifact, not in repo)
-data/*.db
+# Database WAL/SHM files (never commit these)
 data/*.db-wal
 data/*.db-shm
+
+# Analysis DB (separate from canonical corec.db)
+data/full-analysis.db
+
+# Artifact downloads (legacy)
+data/gh-artifact/
+data/gh-artifact-feb8/
 
 # Logs
 data/*.log

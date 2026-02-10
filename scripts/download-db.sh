@@ -1,17 +1,13 @@
 #!/bin/bash
-# Download the latest database from GitHub Actions artifacts
-# Requires: gh CLI (brew install gh)
+# Download the latest database by pulling from the repo
+# The DB is now committed directly — no more artifact downloads
 
 set -e
 
-REPO="${GITHUB_REPO:-$(git remote get-url origin | sed 's/.*github.com[:/]\(.*\)\.git/\1/')}"
+echo "Pulling latest database from repo..."
+git pull origin main
 
-echo "Downloading latest database from $REPO..."
-
-# Get the latest artifact
-gh run download --repo "$REPO" --name corec-database --dir data/
-
-echo "Database downloaded to data/corec.db"
+echo "Database updated at data/corec.db"
 
 # Show stats
 if command -v sqlite3 &> /dev/null; then

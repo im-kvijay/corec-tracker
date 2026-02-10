@@ -23,13 +23,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Download database
-        uses: dawidd6/action-download-artifact@v3
-        with:
-          workflow: collect.yml
-          name: corec-database
-          path: data/
-
       - name: Generate analysis report
         run: |
           echo "# CoRec Occupancy Report" > REPORT.md
