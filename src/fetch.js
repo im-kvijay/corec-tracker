@@ -5,6 +5,21 @@ import {
   saveSnapshot, shouldSaveSnapshot, logFetch, closeDb
 } from './db.js';
 
+const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
+const MAX_RETRIES = 3;
+
+async function fetchWithRetry(url, options) {
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    const response = await fetch(url, options);
+    if (response.ok || !RETRYABLE_STATUS.has(response.status) || attempt === MAX_RETRIES) {
+      return response;
+    }
+    const delay = attempt * 5_000; // 5s, 10s, 15s
+    console.log(`  ⟳ HTTP ${response.status} — retrying in ${delay / 1000}s (attempt ${attempt}/${MAX_RETRIES})`);
+    await new Promise(r => setTimeout(r, delay));
+  }
+}
+
 async function fetchOccupancy() {
   const url = getApiUrl();
   const timestamp = new Date().toISOString();
@@ -16,7 +31,7 @@ async function fetchOccupancy() {
   let updatedLocations = 0;
 
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       headers: {
         'Accept': 'application/json',
         'User-Agent': 'CoRec-Tracker/1.0'
