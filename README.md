@@ -15,6 +15,7 @@ npm test
 npm run dashboard   # see current occupancy
 npm run fetch       # collect data once
 npm run analyze     # view patterns & best times
+npm run report      # write the markdown report (REPORT.md) to stdout
 npm run start       # run continuous collection locally
 ```
 

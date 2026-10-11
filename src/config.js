@@ -34,14 +34,24 @@ export const CONFIG = {
   // CoRec operating hours (approximate)
   // Used to filter analysis to open hours only
   OPERATING_HOURS: {
-    // [open_hour, close_hour] in 24h format
+    // [open_hour, close_hour) in 24h format; close_hour itself is not open
     weekday: [6, 23],    // Mon-Thu: 6am-11pm
     friday: [6, 21],     // Fri: 6am-9pm
     saturday: [8, 21],   // Sat: 8am-9pm
     sunday: [10, 23]     // Sun: 10am-11pm
-  }
+  },
+
+  // Minimum readings for a day/hour slot to rank in "best times"
+  MIN_SAMPLES: 5
 };
 
 export function getApiUrl() {
   return `${CONFIG.API_URL}?AccountAPIKey=${CONFIG.API_KEY}`;
+}
+
+// dow uses JS/SQLite numbering: 0 = Sunday ... 6 = Saturday
+export function isOpenAt(dow, hour) {
+  const { weekday, friday, saturday, sunday } = CONFIG.OPERATING_HOURS;
+  const [open, close] = [sunday, weekday, weekday, weekday, weekday, friday, saturday][dow];
+  return hour >= open && hour < close;
 }
