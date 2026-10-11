@@ -1,13 +1,18 @@
 import Database from 'better-sqlite3';
-import { CONFIG } from './config.js';
+import { CONFIG, isOpenAt } from './config.js';
 
 let db = null;
+
+// SQL expressions for a reading's local day-of-week and hour (api_ts is local time)
+const DOW_SQL = `CAST(strftime('%w', r.api_ts) AS INTEGER)`;
+const HOUR_SQL = `CAST(strftime('%H', r.api_ts) AS INTEGER)`;
 
 export function getDb() {
   if (!db) {
     db = new Database(CONFIG.DB_PATH);
     db.pragma('journal_mode = WAL');  // Better performance
     db.pragma('synchronous = NORMAL'); // Faster writes, still safe
+    db.function('is_open', (dow, hour) => (isOpenAt(dow, hour) ? 1 : 0));
     initSchema();
   }
   return db;
@@ -204,7 +209,11 @@ export function getLatestReadings() {
     FROM readings r
     JOIN locations l ON r.location_id = l.location_id
     WHERE r.id IN (
-      SELECT MAX(id) FROM readings GROUP BY location_id
+      -- api_ts is US Eastern local time; a one-day window absorbs the UTC offset
+      -- and keeps retired location ids from showing up as "current"
+      SELECT MAX(id) FROM readings
+      WHERE api_ts >= datetime('now', '-1 day')
+      GROUP BY location_id
     )
     ORDER BY r.pct DESC
   `).all();
@@ -225,15 +234,13 @@ export function getReadingStats() {
 }
 
 export function getHourlyAverages(locationName = null) {
-  const whereClause = locationName
-    ? `WHERE l.location_name LIKE ?`
-    : '';
+  const locationClause = locationName ? 'AND l.location_name LIKE ?' : '';
 
   const sql = `
     SELECT
       l.location_name,
-      CAST(strftime('%w', r.api_ts) AS INTEGER) as day_of_week,
-      CAST(strftime('%H', r.api_ts) AS INTEGER) as hour,
+      ${DOW_SQL} as day_of_week,
+      ${HOUR_SQL} as hour,
       ROUND(AVG(r.pct), 1) as avg_pct,
       ROUND(AVG(r.last_count), 0) as avg_count,
       MIN(r.pct) as min_pct,
@@ -241,8 +248,9 @@ export function getHourlyAverages(locationName = null) {
       COUNT(*) as samples
     FROM readings r
     JOIN locations l ON r.location_id = l.location_id
-    ${whereClause}
-    AND r.is_closed = 0
+    WHERE r.is_closed = 0
+    AND is_open(${DOW_SQL}, ${HOUR_SQL}) = 1
+    ${locationClause}
     GROUP BY l.location_name, day_of_week, hour
     ORDER BY l.location_name, day_of_week, hour
   `;
@@ -252,19 +260,18 @@ export function getHourlyAverages(locationName = null) {
     : getDb().prepare(sql).all();
 }
 
-export function getOptimalTimes(locationName = null, limit = 20) {
-  const whereClause = locationName
-    ? `WHERE l.location_name LIKE ? AND r.is_closed = 0`
-    : 'WHERE r.is_closed = 0';
-
-  const params = locationName ? [`%${locationName}%`, limit] : [limit];
+// Lowest-occupancy open slots for the key workout areas. Ranks by location name,
+// not id, because some locations were reissued new ids (East Fitness, APGL, Kilter Board Wall).
+export function getOptimalTimes(limit = 20) {
+  const keys = CONFIG.KEY_LOCATIONS;
+  const locationClause = `AND (${keys.map(() => 'l.location_name LIKE ?').join(' OR ')})`;
+  const params = [...keys.map(k => `%${k}%`), CONFIG.MIN_SAMPLES, limit];
 
   const sql = `
     SELECT
       l.location_name,
-      l.total_capacity,
-      CAST(strftime('%w', r.api_ts) AS INTEGER) as day_of_week,
-      CAST(strftime('%H', r.api_ts) AS INTEGER) as hour,
+      ${DOW_SQL} as day_of_week,
+      ${HOUR_SQL} as hour,
       ROUND(AVG(r.pct), 1) as avg_pct,
       ROUND(AVG(r.last_count), 0) as avg_count,
       MIN(r.pct) as min_pct,
@@ -272,9 +279,11 @@ export function getOptimalTimes(locationName = null, limit = 20) {
       COUNT(*) as samples
     FROM readings r
     JOIN locations l ON r.location_id = l.location_id
-    ${whereClause}
-    GROUP BY l.location_id, day_of_week, hour
-    HAVING samples >= 2
+    WHERE r.is_closed = 0
+    AND is_open(${DOW_SQL}, ${HOUR_SQL}) = 1
+    ${locationClause}
+    GROUP BY l.location_name, day_of_week, hour
+    HAVING samples >= ?
     ORDER BY avg_pct ASC
     LIMIT ?
   `;

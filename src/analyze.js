@@ -1,16 +1,9 @@
 #!/usr/bin/env node
 import { getDb, getLatestReadings, getOptimalTimes, getHourlyAverages, getReadingStats, closeDb } from './db.js';
 import { CONFIG } from './config.js';
+import { DAYS_SHORT, formatHour } from './format.js';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-function formatHour(hour) {
-  if (hour === 0) return '12am';
-  if (hour === 12) return '12pm';
-  if (hour < 12) return `${hour}am`;
-  return `${hour - 12}pm`;
-}
 
 function printBar(percentage, width = 30) {
   const filled = Math.round((percentage / 100) * width);
@@ -84,13 +77,13 @@ function printOptimalTimes() {
     const name = o.location_name.padEnd(25).slice(0, 25);
     const day = DAYS_SHORT[o.day_of_week].padEnd(10);
     const time = formatHour(o.hour).padStart(7);
-    const pct = String(o.avg_percentage).padStart(5);
-    const samples = String(o.sample_count).padStart(8);
+    const pct = String(o.avg_pct).padStart(5);
+    const samples = String(o.samples).padStart(8);
 
     console.log(`${rank}.   ${name}  ${day}  ${time}    ${pct}%  ${samples}`);
   }
 
-  console.log('\nNote: Times with fewer than 2 samples are excluded.\n');
+  console.log(`\nNote: Only open hours are ranked; slots with fewer than ${CONFIG.MIN_SAMPLES} samples are excluded.\n`);
 }
 
 function printWeeklyHeatmap(locationName = 'Colby Fitness') {
@@ -109,7 +102,7 @@ function printWeeklyHeatmap(locationName = 'Colby Fitness') {
   const grid = {};
   for (const d of data) {
     if (!grid[d.day_of_week]) grid[d.day_of_week] = {};
-    grid[d.day_of_week][d.hour] = d.avg_percentage;
+    grid[d.day_of_week][d.hour] = d.avg_pct;
   }
 
   // Print header
@@ -172,7 +165,7 @@ function printRecommendations() {
       const times = byDay[day];
       if (times && times.length > 0) {
         const timeStrs = times.slice(0, 3).map(t =>
-          `${formatHour(t.hour)} (${t.avg_percentage}% at ${t.location_name.split(' ')[0]})`
+          `${formatHour(t.hour)} (${t.avg_pct}% at ${t.location_name.split(' ')[0]})`
         );
         console.log(`  ${DAYS[day]}: ${timeStrs.join(', ')}`);
       }
